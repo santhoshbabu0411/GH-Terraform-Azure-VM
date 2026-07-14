@@ -1,0 +1,239 @@
+name: Terraform Azure Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-deploy.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.9.8"
+  TF_WORKING_DIRECTORY: terraform
+  TF_STATE_RESOURCE_GROUP: rg-terraform-state
+  TF_STATE_STORAGE_ACCOUNT: YOURUNIQUETFSTATEACCOUNT
+  TF_STATE_CONTAINER: tfstate
+
+jobs:
+  validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Initialize
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  plan-dev:
+    name: Terraform Plan Dev
+    runs-on: ubuntu-latest
+    needs: validate
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Initialize
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+            -backend-config="key=dev.terraform.tfstate" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Plan
+        env:
+          TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
+        run: |
+          terraform plan \
+            -var-file="environments/dev.tfvars" \
+            -out="dev.tfplan"
+
+      - name: Upload Dev Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-terraform-plan
+          path: terraform/dev.tfplan
+          retention-days: 5
+
+  apply-dev:
+    name: Apply Dev
+    runs-on: ubuntu-latest
+    needs: plan-dev
+    environment: dev
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download Dev Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: dev-terraform-plan
+          path: terraform
+
+      - name: Terraform Initialize
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+            -backend-config="key=dev.terraform.tfstate" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Apply Dev
+        run: terraform apply -auto-approve dev.tfplan
+
+  apply-stage:
+    name: Plan and Apply Stage
+    runs-on: ubuntu-latest
+    needs: apply-dev
+    environment: stage
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Initialize
+        run: |
+          terraform init \
+            -reconfigure \
+            -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+            -backend-config="key=stage.terraform.tfstate" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Plan Stage
+        env:
+          TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
+        run: |
+          terraform plan \
+            -var-file="environments/stage.tfvars" \
+            -out="stage.tfplan"
+
+      - name: Terraform Apply Stage
+        run: terraform apply -auto-approve stage.tfplan
+
+  apply-prod:
+    name: Plan and Apply Prod
+    runs-on: ubuntu-latest
+    needs: apply-stage
+    environment: prod
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIRECTORY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Initialize
+        run: |
+          terraform init \
+            -reconfigure \
+            -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+            -backend-config="key=prod.terraform.tfstate" \
+            -backend-config="use_oidc=true"
+
+      - name: Terraform Plan Prod
+        env:
+          TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
+        run: |
+          terraform plan \
+            -var-file="environments/prod.tfvars" \
+            -out="prod.tfplan"
+
+      - name: Terraform Apply Prod
+        run: terraform apply -auto-approve prod.tfplan
