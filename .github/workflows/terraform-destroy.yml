@@ -24,7 +24,6 @@ permissions:
 env:
   TF_VERSION: "1.9.8"
   TF_WORKING_DIRECTORY: terraform
-
   TF_STATE_RESOURCE_GROUP: rg-terraform-state
   TF_STATE_STORAGE_ACCOUNT: ghterraformazurevm14
   TF_STATE_CONTAINER: tfstate
@@ -33,14 +32,9 @@ jobs:
   destroy:
     name: Destroy ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
 
-    env:
-      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      ARM_USE_OIDC: "true"
-      ARM_USE_AZUREAD: "true"
+    # This must match the GitHub and Azure federated environment.
+    environment: ${{ inputs.environment }}
 
     defaults:
       run:
@@ -56,6 +50,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify Azure variables
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ]; then
+            echo "AZURE_CLIENT_ID is missing."
+            exit 1
+          fi
+
+          if [ -z "$AZURE_TENANT_ID" ]; then
+            echo "AZURE_TENANT_ID is missing."
+            exit 1
+          fi
+
+          if [ -z "$AZURE_SUBSCRIPTION_ID" ]; then
+            echo "AZURE_SUBSCRIPTION_ID is missing."
+            exit 1
+          fi
+
+          echo "All required Azure variables are available."
+
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -69,6 +87,12 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Initialize
+        env:
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: "true"
+          ARM_USE_AZUREAD: "true"
         run: |
           terraform init \
             -reconfigure \
@@ -78,12 +102,16 @@ jobs:
             -backend-config="key=${{ inputs.environment }}.terraform.tfstate" \
             -backend-config="use_oidc=true" \
             -backend-config="use_azuread_auth=true" \
-            -backend-config="client_id=${{ vars.AZURE_CLIENT_ID }}" \
-            -backend-config="tenant_id=${{ vars.AZURE_TENANT_ID }}" \
-            -backend-config="subscription_id=${{ vars.AZURE_SUBSCRIPTION_ID }}"
+            -backend-config="client_id=${ARM_CLIENT_ID}" \
+            -backend-config="tenant_id=${ARM_TENANT_ID}" \
+            -backend-config="subscription_id=${ARM_SUBSCRIPTION_ID}"
 
       - name: Terraform Destroy Plan
         env:
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: "true"
           TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
           TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
         run: |
@@ -93,4 +121,9 @@ jobs:
             -out="destroy.tfplan"
 
       - name: Terraform Destroy
+        env:
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: "true"
         run: terraform apply -auto-approve destroy.tfplan
