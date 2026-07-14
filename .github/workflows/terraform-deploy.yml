@@ -23,9 +23,16 @@ permissions:
 env:
   TF_VERSION: "1.9.8"
   TF_WORKING_DIRECTORY: terraform
+
   TF_STATE_RESOURCE_GROUP: rg-terraform-state
-  TF_STATE_STORAGE_ACCOUNT: YOURUNIQUETFSTATEACCOUNT
+  TF_STATE_STORAGE_ACCOUNT: ghterraformazurevm14
   TF_STATE_CONTAINER: tfstate
+
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: true
+  ARM_USE_AZUREAD: true
 
 jobs:
   validate:
@@ -58,6 +65,7 @@ jobs:
     name: Terraform Plan Dev
     runs-on: ubuntu-latest
     needs: validate
+    environment: dev
 
     defaults:
       run:
@@ -86,7 +94,8 @@ jobs:
             -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
             -backend-config="key=dev.terraform.tfstate" \
-            -backend-config="use_oidc=true"
+            -backend-config="use_oidc=true" \
+            -backend-config="use_azuread_auth=true"
 
       - name: Terraform Plan
         env:
@@ -115,7 +124,8 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -124,7 +134,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -141,7 +152,8 @@ jobs:
             -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
             -backend-config="key=dev.terraform.tfstate" \
-            -backend-config="use_oidc=true"
+            -backend-config="use_oidc=true" \
+            -backend-config="use_azuread_auth=true"
 
       - name: Terraform Apply Dev
         run: terraform apply -auto-approve dev.tfplan
@@ -157,7 +169,8 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -166,7 +179,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -178,7 +192,8 @@ jobs:
             -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
             -backend-config="key=stage.terraform.tfstate" \
-            -backend-config="use_oidc=true"
+            -backend-config="use_oidc=true" \
+            -backend-config="use_azuread_auth=true"
 
       - name: Terraform Plan Stage
         env:
@@ -203,7 +218,8 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIRECTORY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v2
@@ -212,7 +228,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -224,7 +241,8 @@ jobs:
             -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
             -backend-config="key=prod.terraform.tfstate" \
-            -backend-config="use_oidc=true"
+            -backend-config="use_oidc=true" \
+            -backend-config="use_azuread_auth=true"
 
       - name: Terraform Plan Prod
         env:
