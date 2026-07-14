@@ -10,6 +10,18 @@ resource "azurerm_subnet" "main" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = var.subnet_prefix
+
+  depends_on = [
+    azurerm_virtual_network.main
+  ]
+}
+
+resource "time_sleep" "wait_for_subnet" {
+  create_duration = "30s"
+
+  depends_on = [
+    azurerm_subnet.main
+  ]
 }
 
 resource "azurerm_network_security_group" "main" {
@@ -33,6 +45,11 @@ resource "azurerm_network_security_group" "main" {
 resource "azurerm_subnet_network_security_group_association" "main" {
   subnet_id                 = azurerm_subnet.main.id
   network_security_group_id = azurerm_network_security_group.main.id
+
+  depends_on = [
+    time_sleep.wait_for_subnet,
+    azurerm_network_security_group.main
+  ]
 }
 
 resource "azurerm_public_ip" "main" {
@@ -54,6 +71,11 @@ resource "azurerm_network_interface" "main" {
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.main.id
   }
+
+  depends_on = [
+    azurerm_subnet_network_security_group_association.main,
+    azurerm_public_ip.main
+  ]
 }
 
 resource "azurerm_linux_virtual_machine" "main" {
@@ -86,4 +108,8 @@ resource "azurerm_linux_virtual_machine" "main" {
     sku       = "server"
     version   = "latest"
   }
+
+  depends_on = [
+    azurerm_network_interface.main
+  ]
 }
