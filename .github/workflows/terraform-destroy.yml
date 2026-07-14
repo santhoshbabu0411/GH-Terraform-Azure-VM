@@ -42,22 +42,34 @@ jobs:
       - name: Validate confirmation
         if: ${{ inputs.confirmation != 'DESTROY' }}
         run: |
-          echo "Confirmation must be exactly DESTROY"
+          echo "Confirmation must be exactly DESTROY."
           exit 1
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Verify required variables
+      - name: Verify Azure variables
         env:
           CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
-          test -n "$CLIENT_ID" || { echo "AZURE_CLIENT_ID is missing"; exit 1; }
-          test -n "$TENANT_ID" || { echo "AZURE_TENANT_ID is missing"; exit 1; }
-          test -n "$SUBSCRIPTION_ID" || { echo "AZURE_SUBSCRIPTION_ID is missing"; exit 1; }
-          echo "Required Azure variables are available."
+          test -n "$CLIENT_ID" || {
+            echo "AZURE_CLIENT_ID is empty"
+            exit 1
+          }
+
+          test -n "$TENANT_ID" || {
+            echo "AZURE_TENANT_ID is empty"
+            exit 1
+          }
+
+          test -n "$SUBSCRIPTION_ID" || {
+            echo "AZURE_SUBSCRIPTION_ID is empty"
+            exit 1
+          }
+
+          echo "Azure variables are available."
 
       - name: Azure Login
         uses: azure/login@v2
@@ -79,6 +91,9 @@ jobs:
           ARM_USE_OIDC: "true"
           ARM_USE_AZUREAD: "true"
         run: |
+          echo "Client ID available: $([ -n "$ARM_CLIENT_ID" ] && echo yes || echo no)"
+          echo "Tenant ID available: $([ -n "$ARM_TENANT_ID" ] && echo yes || echo no)"
+
           terraform init \
             -reconfigure \
             -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
@@ -87,9 +102,9 @@ jobs:
             -backend-config="key=${{ inputs.environment }}.terraform.tfstate" \
             -backend-config="use_oidc=true" \
             -backend-config="use_azuread_auth=true" \
-            -backend-config="client_id=${{ vars.AZURE_CLIENT_ID }}" \
-            -backend-config="tenant_id=${{ vars.AZURE_TENANT_ID }}" \
-            -backend-config="subscription_id=${{ vars.AZURE_SUBSCRIPTION_ID }}"
+            -backend-config="client_id=$ARM_CLIENT_ID" \
+            -backend-config="tenant_id=$ARM_TENANT_ID" \
+            -backend-config="subscription_id=$ARM_SUBSCRIPTION_ID"
 
       - name: Terraform Destroy Plan
         env:
