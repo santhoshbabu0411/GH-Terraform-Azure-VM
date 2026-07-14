@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment to destroy
+        description: "Environment to destroy"
         required: true
         type: choice
         options:
@@ -13,7 +13,7 @@ on:
           - prod
 
       confirmation:
-        description: Type DESTROY to confirm
+        description: "Type DESTROY to confirm"
         required: true
         type: string
 
@@ -24,8 +24,9 @@ permissions:
 env:
   TF_VERSION: "1.9.8"
   TF_WORKING_DIRECTORY: terraform
+
   TF_STATE_RESOURCE_GROUP: rg-terraform-state
-  TF_STATE_STORAGE_ACCOUNT: YOURUNIQUETFSTATEACCOUNT
+  TF_STATE_STORAGE_ACCOUNT: ghterraformazurevm14
   TF_STATE_CONTAINER: tfstate
 
 jobs:
@@ -33,6 +34,13 @@ jobs:
     name: Destroy ${{ inputs.environment }}
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
 
     defaults:
       run:
@@ -42,7 +50,7 @@ jobs:
       - name: Validate confirmation
         if: ${{ inputs.confirmation != 'DESTROY' }}
         run: |
-          echo "Confirmation value must be DESTROY."
+          echo "Confirmation must be exactly DESTROY"
           exit 1
 
       - name: Checkout repository
@@ -63,11 +71,16 @@ jobs:
       - name: Terraform Initialize
         run: |
           terraform init \
+            -reconfigure \
             -backend-config="resource_group_name=${{ env.TF_STATE_RESOURCE_GROUP }}" \
             -backend-config="storage_account_name=${{ env.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
             -backend-config="key=${{ inputs.environment }}.terraform.tfstate" \
-            -backend-config="use_oidc=true"
+            -backend-config="use_oidc=true" \
+            -backend-config="use_azuread_auth=true" \
+            -backend-config="client_id=${{ vars.AZURE_CLIENT_ID }}" \
+            -backend-config="tenant_id=${{ vars.AZURE_TENANT_ID }}" \
+            -backend-config="subscription_id=${{ vars.AZURE_SUBSCRIPTION_ID }}"
 
       - name: Terraform Destroy Plan
         env:
